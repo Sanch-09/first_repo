@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hangman Game</title>
+  <style>
+    :root {
+      --bg: #0b0b0f;
+      --card: #14141a;
+      --text: #e6e6f0;
+      --muted: #9aa0aa;
+      --accent: #6ee7b7;
+      --danger: #f87171;
+      --shadow: 0 10px 30px rgba(0,0,0,.4);
+      --radius: 18px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, Noto Sans, "Apple Color Emoji", "Segoe UI Emoji"; background: radial-gradient(1000px 800px at 50% -20%, #1a1b22 0%, #0b0b0f 60%); color: var(--text); min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    .app { width: min(1000px, 95vw); background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02)); border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+    header { padding: 28px 24px 14px; text-align: center; }
+    h1 { margin: 0; font-size: clamp(28px, 3.4vw, 44px); letter-spacing: .06em; font-weight: 800; }
+    .sub { color: var(--muted); font-size: 14px; margin-top: 6px; }
+
+    .row { padding: 16px 24px; display: grid; gap: 14px; }
+    .card { background: var(--card); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 18px; }
+
+    .question { font-size: clamp(16px, 2.2vw, 20px); line-height: 1.4; }
+
+    .letters { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 10px; }
+    .letters button { height: 44px; border-radius: 12px; border: 1px solid rgba(255,255,255,.08); background: #1c1d25; color: var(--text); font-weight: 700; text-transform: lowercase; cursor: pointer; transition: transform .06s ease, background .2s ease, opacity .2s ease; }
+    .letters button:hover { transform: translateY(-1px); }
+    .letters button:disabled { opacity: .35; cursor: not-allowed; }
+
+    .word { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; letter-spacing: .04em; padding: 10px 0; }
+    .box { width: 34px; height: 44px; display: grid; place-items: center; font-size: 22px; font-weight: 800; background: #101118; border: 1px dashed rgba(255,255,255,.18); border-radius: 10px; text-transform: uppercase; }
+    .box.space { width: 22px; background: transparent; border: none; }
+    .box.hyphen { width: 22px; border-style: solid; opacity: .6; }
+
+    .status { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; color: var(--muted); }
+    .lives { font-weight: 800; letter-spacing: .04em; }
+    .lives.critical { color: var(--danger); }
+
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn { border: 1px solid rgba(255,255,255,.12); background: #1c1d25; color: var(--text); padding: 10px 14px; border-radius: 12px; font-weight: 700; cursor: pointer; }
+    .btn.accent { border-color: rgba(110,231,183,.5); background: #0f2a23; color: var(--accent); }
+
+    .toast { text-align: center; font-weight: 800; padding: 14px 16px; border-radius: 12px; }
+    .toast.win { color: #a7f3d0; background: rgba(16, 185, 129, .1); border: 1px solid rgba(16, 185, 129, .3); }
+    .toast.lose { color: #fecaca; background: rgba(239, 68, 68, .08); border: 1px solid rgba(239, 68, 68, .3); }
+    .hidden { display: none; }
+
+    footer { padding: 10px 24px 24px; text-align: center; color: var(--muted); font-size: 12px; }
+    a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <header>
+      <h1>HANGMAN GAME</h1>
+      <div class="sub">Use the alphabet to guess the word, or click <strong>Hint</strong> for a clue.</div>
+    </header>
+
+    <div class="row">
+      <div class="card">
+        <div class="status">
+          <div id="category" class="lives">Category: <span>—</span></div>
+          <div class="actions">
+            <button class="btn" id="btnHint" title="Show a hint for this word">Hint</button>
+            <button class="btn accent" id="btnRestart" title="Start a new round">New Round</button>
+          </div>
+        </div>
+        <p class="question" id="question">Loading question…</p>
+      </div>
+
+      <div class="card">
+        <div class="word" id="word"></div>
+      </div>
+
+      <div class="card">
+        <div class="status">
+          <div id="lives" class="lives">Lives: <strong>10</strong></div>
+          <div id="message" class="toast hidden"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div id="letters" class="letters" aria-label="Alphabet buttons"></div>
+      </div>
+    </div>
+
+    <footer>
+      Built for the assignment: random question, A–Z keypad, hint, lives, win/lose, disable used letters.
+    </footer>
+  </div>
+
+  <script>
+    // --- Config & Data ---
+    const FALLBACK_QUESTIONS = [
+      { question: "Where is the head office of Code Quotient?", answer: "Mohali", category: "Companies" },
+      { question: "What is the Capital of Himachal Pradesh?", answer: "Shimla", category: "Geography" },
+      { question: "City known as the Big Apple", answer: "New York", category: "Cities" },
+      { question: "Programming language with a cup logo", answer: "Java", category: "Tech" },
+    ];
+
+    const API_URL = "http://codepiratecvcs.my-php-hosting-panel.com/hangmanphp"; // As per screenshot; game will gracefully fallback if blocked.
+
+    // --- State ---
+    const state = {
+      bank: [],
+      current: null, // {question, answer, category}
+      hidden: [], // array of characters displayed to the user
+      revealed: new Set(),
+      wrong: new Set(),
+      lives: 10,
+      gameOver: false,
+      showHint: false,
+    };
+
+    // --- Helpers ---
+    const $ = (q) => document.querySelector(q);
+    const $$ = (q) => Array.from(document.querySelectorAll(q));
+    const normalize = (s) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "");
+
+    function sample(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+    function maskAnswer(ans) {
+      // Build display boxes for letters; keep spaces/hyphens visible
+      const frag = document.createDocumentFragment();
+      state.hidden = [];
+      [...ans].forEach(ch => {
+        const el = document.createElement('div');
+        if (ch === ' ') {
+          el.className = 'box space';
+          el.textContent = '\u00A0';
+          state.hidden.push(' ');
+        } else if (ch === '-') {
+          el.className = 'box hyphen';
+          el.textContent = '-';
+          state.hidden.push('-');
+        } else {
+          el.className = 'box';
+          el.textContent = '_';
+          state.hidden.push('_');
+        }
+        frag.appendChild(el);
+      });
+      const word = $('#word');
+      word.innerHTML = '';
+      word.appendChild(frag);
+    }
+
+    function renderLives() {
+      const liveEl = $('#lives');
+      liveEl.innerHTML = `Lives: <strong>${state.lives}</strong>`;
+      liveEl.classList.toggle('critical', state.lives <= 3);
+    }
+
+    function setToast(type, text) {
+      const m = $('#message');
+      if (!text) { m.classList.add('hidden'); m.textContent = ''; return; }
+      m.className = `toast ${type}`;
+      m.textContent = text;
+    }
+
+    function disableKeyboard(disabled) {
+      $$('#letters button').forEach(b => b.disabled = disabled || b.dataset.used === '1');
+    }
+
+    // --- Game Flow ---
+    async function loadBank() {
+      try {
+        const res = await fetch(API_URL, { mode: 'cors' });
+        const data = await res.json();
+        // Accept either {Question, Answer} or lower-case keys
+        state.bank = (Array.isArray(data) ? data : []).map(x => ({
+          question: x.Question || x.question,
+          answer: x.Answer || x.answer,
+          category: x.Category || x.category || 'General'
+        })).filter(q => q.question && q.answer);
+        if (!state.bank.length) throw new Error('empty');
+      } catch (e) {
+        state.bank = FALLBACK_QUESTIONS;
+      }
+    }
+
+    function pickRound() {
+      state.current = structuredClone(sample(state.bank));
+      state.lives = 10;
+      state.revealed.clear();
+      state.wrong.clear();
+      state.gameOver = false;
+      state.showHint = false;
+
+      $('#question').textContent = state.current.question;
+      $('#category span').textContent = state.current.category || '—';
+      setToast('', '');
+      maskAnswer(state.current.answer);
+      renderLives();
+      // reset keyboard
+      $$('#letters button').forEach(b => { b.disabled = false; b.dataset.used = '0'; b.classList.remove('wrong','right'); });
+    }
+
+    function revealLetter(letter) {
+      const ans = state.current.answer;
+      const Ans = normalize(ans).toLowerCase();
+      let hit = false;
+      [...Ans].forEach((ch, idx) => {
+        if (/[a-z]/i.test(ch) && ch === letter) {
+          hit = true;
+          state.revealed.add(letter);
+          state.hidden[idx] = ans[idx].toUpperCase();
+          $('#word').children[idx].textContent = ans[idx].toUpperCase();
+        }
+      });
+      if (!hit) {
+        state.wrong.add(letter);
+        state.lives--;
+        renderLives();
+      }
+      checkEnd();
+    }
+
+    function allRevealed() {
+      const Ans = normalize(state.current.answer).toLowerCase();
+      return [...Ans].every((ch, i) => (ch === ' ' || ch === '-') ? true : /[a-z]/.test(ch) ? $('#word').children[i].textContent !== '_' : true);
+    }
+
+    function checkEnd() {
+      if (state.lives <= 0 && !state.gameOver) {
+        state.gameOver = true;
+        setToast('lose', `Out of lives! The answer was "${state.current.answer.toUpperCase()}"`);
+        disableKeyboard(true);
+        return;
+      }
+      if (allRevealed() && !state.gameOver) {
+        state.gameOver = true;
+        setToast('win', 'You won! Great job.');
+        disableKeyboard(true);
+      }
+    }
+
+    // --- UI Wiring ---
+    function buildKeyboard() {
+      const letters = 'abcdefghijklmnopqrstuvwxyz'.split('');
+      const frag = document.createDocumentFragment();
+      letters.forEach(l => {
+        const b = document.createElement('button');
+        b.textContent = l;
+        b.dataset.letter = l;
+        b.dataset.used = '0';
+        b.addEventListener('click', () => {
+          if (state.gameOver) return;
+          b.dataset.used = '1';
+          b.disabled = true;
+          revealLetter(l);
+        });
+        frag.appendChild(b);
+      });
+      $('#letters').appendChild(frag);
+    }
+
+    // Hint toggles question/category text emphasis
+    $('#btnHint').addEventListener('click', () => {
+      if (!state.current) return;
+      state.showHint = !state.showHint;
+      const q = $('#question');
+      q.innerHTML = state.showHint
+        ? `${state.current.question} <br><em style="color: var(--muted); font-size: 0.95em;">Hint: The answer has ${[...state.current.answer].filter(ch=>/[A-Za-z]/.test(ch)).length} letters.</em>`
+        : state.current.question;
+    });
+
+    $('#btnRestart').addEventListener('click', pickRound);
+
+    // --- Init ---
+    (async function init(){
+      buildKeyboard();
+      await loadBank();
+      pickRound();
+    })();
+  </script>
+</body>
+</html>
